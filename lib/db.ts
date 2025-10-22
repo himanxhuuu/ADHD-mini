@@ -1,6 +1,8 @@
 import mongoose from "mongoose";
+import dotenv from "dotenv";
 
-const MONGODB_URI = process.env.MONGODB_URI as string | undefined;
+
+const MONGODB_URI = dotenv.config().parsed?.MONGODB_URI as string | undefined;
 
 let cached = (global as any).mongoose as {
   conn: typeof mongoose | null;

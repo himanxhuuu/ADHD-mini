@@ -346,10 +346,10 @@ export default function SignupPage() {
                   value={form.role}
                   onChange={(e) => setForm({ ...form, role: e.target.value })}
                 >
-                  <option value="Student">Student</option>
-                  <option value="Parent">Parent</option>
-                  <option value="Educator">Educator</option>
-                </select>
+          <option value="Student">Student</option>
+          <option value="Parent">Parent</option>
+          <option value="Educator">Educator</option>
+        </select>
               </div>
             </div>
 
@@ -386,7 +386,7 @@ export default function SignupPage() {
                 "Create Account"
               )}
             </motion.button>
-          </form>
+      </form>
 
           {/* Login Link */}
           <div className="mt-6 text-center">
