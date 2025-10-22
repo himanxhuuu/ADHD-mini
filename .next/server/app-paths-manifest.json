@@ -1,9 +1,0 @@
-{
-  "/page": "app/page.js",
-  "/api/user/profile/route": "app/api/user/profile/route.js",
-  "/api/realtime/predict/route": "app/api/realtime/predict/route.js",
-  "/api/gamification/progress/route": "app/api/gamification/progress/route.js",
-  "/api/gamification/check-achievements/route": "app/api/gamification/check-achievements/route.js",
-  "/dashboard/page": "app/dashboard/page.js",
-  "/dashboard/gamified/page": "app/dashboard/gamified/page.js"
-}
