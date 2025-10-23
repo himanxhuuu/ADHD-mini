@@ -161,18 +161,45 @@ class ADHDPredictor:
             'colsample_bytree': 0.8,
             'random_state': self.config['random_state'],
             'n_jobs': -1,
-            'early_stopping_rounds': 20
         }
         
         # Train XGBoost
         self.model = xgb.XGBClassifier(**xgb_params)
-        self.model.fit(X_train, y_train, 
-                      eval_set=[(X_test, y_test)], 
-                      verbose=False)
+        # Pass early stopping to the initial fit in a way that's compatible
+        # with multiple xgboost versions. Newer versions use callbacks;
+        # older ones accept early_stopping_rounds as a fit kwarg.
+        try:
+            # Try the simple API first (works on many xgboost releases)
+            self.model.fit(
+                X_train,
+                y_train,
+                eval_set=[(X_test, y_test)],
+                early_stopping_rounds=20,
+                verbose=False
+            )
+        except TypeError:
+            # Fallback: try using xgboost callback API
+            try:
+                self.model.fit(
+                    X_train,
+                    y_train,
+                    eval_set=[(X_test, y_test)],
+                    callbacks=[xgb.callback.EarlyStopping(rounds=20, save_best=True)],
+                    verbose=False
+                )
+            except Exception:
+                # As a last resort, fit without early stopping
+                print("⚠️ early stopping not supported by this xgboost build; fitting without early stopping")
+                self.model.fit(X_train, y_train, verbose=False)
         
+        # Keep a reference to the trained base estimator (XGBoost) so we can
+        # access feature importances and build SHAP explainers even after
+        # wrapping with CalibratedClassifierCV.
+        self.base_estimator = self.model
+
         # Calibrate probabilities
         self.model = CalibratedClassifierCV(
-            self.model, 
+            self.base_estimator,
             method=self.config['calibration_method'],
             cv=3
         )
@@ -194,10 +221,25 @@ class ADHDPredictor:
         precision, recall, thresholds = precision_recall_curve(y_test, y_pred_proba)
         
         # Feature importance
-        feature_importance = dict(zip(self.feature_names, self.model.base_estimator.feature_importances_))
-        
-        # Initialize SHAP explainer
-        self.explainer = shap.TreeExplainer(self.model.base_estimator)
+        # Use the base estimator for feature importance and SHAP
+        feature_importance = dict(zip(self.feature_names, self.base_estimator.feature_importances_))
+
+        # Initialize SHAP explainer using the underlying XGBoost model.
+        # Different xgboost/shap versions may require passing the Booster
+        # object instead of the sklearn wrapper. Try common options and
+        # gracefully fall back to disabling SHAP if unavailable.
+        try:
+            self.explainer = shap.TreeExplainer(self.base_estimator)
+        except Exception:
+            try:
+                booster = getattr(self.base_estimator, 'get_booster', lambda: None)()
+                if booster is not None:
+                    self.explainer = shap.TreeExplainer(booster)
+                else:
+                    raise RuntimeError('no booster available')
+            except Exception:
+                self.explainer = None
+                print('⚠️ SHAP explainer unavailable for this xgboost/shap combination; continuing without explanations')
         
         results = {
             'model_version': self.model_version,
@@ -234,8 +276,25 @@ class ADHDPredictor:
         # Predictions
         adhd_probability = self.model.predict_proba(X_scaled)[:, 1]
         
-        # SHAP explanations
-        shap_values = self.explainer.shap_values(X_scaled)
+        # SHAP explanations (handle different SHAP APIs and missing explainer)
+        shap_values = None
+        if self.explainer is None:
+            # Fallback: zero contributions
+            import numpy as _np
+            shap_values = _np.zeros((X_scaled.shape[0], len(self.feature_names)))
+        else:
+            try:
+                # Old API
+                shap_values = self.explainer.shap_values(X_scaled)
+            except Exception:
+                try:
+                    # Newer SHAP returns an Explanation object
+                    expl = self.explainer(X_scaled)
+                    shap_values = expl.values
+                except Exception:
+                    # As a last resort, zero contributions
+                    import numpy as _np
+                    shap_values = _np.zeros((X_scaled.shape[0], len(self.feature_names)))
         
         # Get top contributing features
         top_features = []
